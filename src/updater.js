@@ -5,7 +5,7 @@ const fs = require('fs');
 const os = require('os');
 
 // 包名
-const PACKAGE_NAME = 'uutools';
+const PACKAGE_NAME = 'uutool';
 // 缓存文件路径
 const UPDATE_CONFIG_PATH = path.join(os.homedir(), '.uutools-update.json');
 
