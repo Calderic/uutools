@@ -8,7 +8,8 @@
   },
   "scripts": {
     "start": "node bin/cli.js",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "prepublishOnly": "echo 'Ready to publish'"
   },
   "keywords": [
     "claude",
@@ -16,10 +17,28 @@
     "gemini",
     "ai",
     "config",
-    "cli"
+    "cli",
+    "uucode",
+    "anthropic",
+    "openai",
+    "google"
   ],
   "author": "",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Calderic/uutools.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Calderic/uutools/issues"
+  },
+  "homepage": "https://github.com/Calderic/uutools#readme",
+  "files": [
+    "bin",
+    "src",
+    "README.md",
+    "LICENSE"
+  ],
   "dependencies": {
     "@clack/prompts": "^0.11.0",
     "boxen": "^5.1.2",
