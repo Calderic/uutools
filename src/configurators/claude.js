@@ -104,8 +104,14 @@ async function configureApiByFile(configPath) {
   }
 
   // 输入 API Key
+  const apiKeyMessage = provider === 'uucode'
+    ? '请输入 UUcode API Key:'
+    : provider === 'anthropic'
+      ? '请输入 Anthropic API Key:'
+      : '请输入 API Key:';
+
   const apiKey = await password({
-    message: '请输入 API Key:',
+    message: apiKeyMessage,
     mask: '*',
     validate: (input) => {
       if (!input || input.trim() === '') return '请输入有效的 API Key';
@@ -203,8 +209,14 @@ async function configureApiByEnv(osInfo, configPath) {
   }
 
   // 输入 API Key
+  const apiKeyMessage = provider === 'uucode'
+    ? '请输入 UUcode API Key:'
+    : provider === 'anthropic'
+      ? '请输入 Anthropic API Key:'
+      : '请输入 API Key:';
+
   const apiKey = await password({
-    message: '请输入 API Key:',
+    message: apiKeyMessage,
     mask: '*',
     validate: (input) => {
       if (!input || input.trim() === '') return '请输入有效的 API Key';

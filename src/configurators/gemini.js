@@ -1,7 +1,29 @@
-const { select, text, password, confirm, isCancel, cancel, spinner } = require('@clack/prompts');
+const { select, text, password, confirm, isCancel, spinner } = require('@clack/prompts');
 const fs = require('fs');
 const path = require('path');
+const { execSync } = require('child_process');
 const { theme, showBox } = require('../ui');
+
+/**
+ * API 提供商列表
+ */
+const API_PROVIDERS = [
+  {
+    label: 'UUcode',
+    value: 'uucode',
+    baseUrl: 'https://api.uucode.org'
+  },
+  {
+    label: 'Google (官方)',
+    value: 'google',
+    baseUrl: 'https://generativelanguage.googleapis.com'
+  },
+  {
+    label: '其他第三方',
+    value: 'custom',
+    baseUrl: ''
+  }
+];
 
 /**
  * 配置 Gemini CLI
@@ -27,9 +49,7 @@ async function configureGemini(osInfo, toolInfo, configPath) {
   const configType = await select({
     message: '选择配置类型:',
     options: [
-      { label: '🔑 配置 Google API Key', value: 'apikey' },
-      { label: '⚙️  配置设置文件', value: 'settings' },
-      { label: '🌐 配置代理设置', value: 'proxy' },
+      { label: '📁 配置 API (配置文件)', value: 'api-config' },
       { label: '↩️  返回', value: 'back' }
     ]
   });
@@ -37,14 +57,8 @@ async function configureGemini(osInfo, toolInfo, configPath) {
   if (isCancel(configType)) return;
 
   switch (configType) {
-    case 'apikey':
-      await configureApiKey(osInfo);
-      break;
-    case 'settings':
-      await configureSettings(configPath);
-      break;
-    case 'proxy':
-      await configureProxy(osInfo);
+    case 'api-config':
+      await configureApi(osInfo, configPath);
       break;
     case 'back':
       return;
@@ -52,11 +66,48 @@ async function configureGemini(osInfo, toolInfo, configPath) {
 }
 
 /**
- * 配置 API Key
+ * 配置 API (配置文件)
  */
-async function configureApiKey(osInfo) {
+async function configureApi(osInfo, configPath) {
+  // 选择 API 提供商
+  const provider = await select({
+    message: '选择 API 提供商:',
+    options: API_PROVIDERS
+  });
+
+  if (isCancel(provider)) return;
+
+  // 获取 base URL
+  let baseUrl = '';
+  const selectedProvider = API_PROVIDERS.find(p => p.value === provider);
+
+  if (provider === 'custom') {
+    const customUrl = await text({
+      message: '请输入 API Base URL:',
+      validate: (input) => {
+        if (!input || input.trim() === '') return '请输入有效的 URL';
+        try {
+          new URL(input);
+        } catch {
+          return '请输入有效的 URL';
+        }
+      }
+    });
+    if (isCancel(customUrl)) return;
+    baseUrl = customUrl;
+  } else {
+    baseUrl = selectedProvider.baseUrl;
+  }
+
+  // 输入 API Key
+  const apiKeyMessage = provider === 'uucode'
+    ? '请输入 UUcode API Key:'
+    : provider === 'google'
+      ? '请输入 Google AI API Key:'
+      : '请输入 API Key:';
+
   const apiKey = await password({
-    message: '请输入 Google AI API Key:',
+    message: apiKeyMessage,
     mask: '*',
     validate: (input) => {
       if (!input || input.trim() === '') return '请输入有效的 API Key';
@@ -66,168 +117,56 @@ async function configureApiKey(osInfo) {
   if (isCancel(apiKey)) return;
 
   const s = spinner();
-  s.start('正在配置环境变量...');
+  s.start('正在配置 Gemini...');
 
   try {
-    const envVar = `GOOGLE_API_KEY=${apiKey}`;
-    const shellConfig = getShellConfigFile(osInfo);
-
-    if (shellConfig) {
-      let content = '';
-      if (fs.existsSync(shellConfig)) {
-        content = fs.readFileSync(shellConfig, 'utf8');
-      }
-
-      if (content.includes('GOOGLE_API_KEY=')) {
-        content = content.replace(/export GOOGLE_API_KEY=.*/g, `export ${envVar}`);
-      } else {
-        content += `\n# Gemini API Key\nexport ${envVar}\n`;
-      }
-
-      fs.writeFileSync(shellConfig, content);
-      s.stop(`API Key 已保存到 ${shellConfig}`);
-
-      showBox('配置成功', `
-API Key 已保存。
-请运行 'source ${shellConfig}' 或重新打开终端使配置生效
-`, 'success');
-
-    } else {
-      s.stop('无法确定 shell 配置文件');
-      showBox('手动配置', `
-请手动添加: export ${envVar}
-`, 'warning');
-    }
-  } catch (error) {
-    s.stop('配置失败');
-    console.error(theme.error(`配置失败: ${error.message}`));
-  }
-}
-
-/**
- * 配置设置文件
- */
-async function configureSettings(configPath) {
-  const s = spinner();
-  s.start('正在读取配置...');
-
-  try {
+    // 确保配置目录存在
     if (!fs.existsSync(configPath.config)) {
       fs.mkdirSync(configPath.config, { recursive: true });
     }
 
-    let settings = {};
-    if (fs.existsSync(configPath.settings)) {
-      settings = JSON.parse(fs.readFileSync(configPath.settings, 'utf8'));
-    }
-
-    s.stop('配置已读取');
-
-    const model = await select({
-      message: '选择默认模型:',
-      options: [
-        { label: 'gemini-2.5-pro', value: 'gemini-2.5-pro' },
-        { label: 'gemini-2.5-flash', value: 'gemini-2.5-flash' },
-        { label: 'gemini-2.0-flash', value: 'gemini-2.0-flash' },
-        { label: 'gemini-1.5-pro', value: 'gemini-1.5-pro' },
-        { label: 'gemini-1.5-flash', value: 'gemini-1.5-flash' }
-      ],
-      initialValue: settings.model || 'gemini-2.5-pro'
-    });
-
-    if (isCancel(model)) return;
-
-    const sandbox = await confirm({
-      message: '启用沙箱模式?',
-      initialValue: settings.sandbox !== false
-    });
-
-    if (isCancel(sandbox)) return;
-
-    settings.model = model;
-    settings.sandbox = sandbox;
-
-    fs.writeFileSync(configPath.settings, JSON.stringify(settings, null, 2));
-    console.log(theme.success(`\n✅ 设置已保存到 ${configPath.settings}`));
-  } catch (error) {
-    s.stop('配置失败');
-    console.error(theme.error(`配置失败: ${error.message}`));
-  }
-}
-
-/**
- * 配置代理
- */
-async function configureProxy(osInfo) {
-  const proxyUrl = await text({
-    message: '请输入代理地址 (如 http://127.0.0.1:7890):',
-    validate: (input) => {
-      if (!input) return;
-      try {
-        new URL(input);
-      } catch {
-        return '请输入有效的 URL';
-      }
-    }
-  });
-
-  if (isCancel(proxyUrl)) return;
-
-  if (!proxyUrl) {
-    console.log(theme.warning('\n⚠️  未设置代理'));
-    return;
-  }
-
-  const s = spinner();
-  s.start('正在配置代理...');
-
-  try {
-    const shellConfig = getShellConfigFile(osInfo);
-
-    if (shellConfig) {
-      let content = '';
-      if (fs.existsSync(shellConfig)) {
-        content = fs.readFileSync(shellConfig, 'utf8');
-      }
-
-      const proxyConfig = `
-# Gemini Proxy
-export HTTP_PROXY=${proxyUrl}
-export HTTPS_PROXY=${proxyUrl}
+    // 创建 .env 文件
+    const envFilePath = path.join(configPath.config, '.env');
+    const envContent = `GOOGLE_GEMINI_BASE_URL=${baseUrl}
+GEMINI_API_KEY=${apiKey}
+GEMINI_MODEL=gemini-3-pro-preview
 `;
+    fs.writeFileSync(envFilePath, envContent);
 
-      content = content.replace(/# Gemini Proxy[\s\S]*?export HTTPS_PROXY=.*\n/g, '');
-      content += proxyConfig;
+    // 创建 settings.json 文件
+    const settingsPath = path.join(configPath.config, 'settings.json');
+    const settingsContent = {
+      ide: {
+        enabled: true
+      },
+      security: {
+        auth: {
+          selectedType: 'gemini-api-key'
+        }
+      }
+    };
+    fs.writeFileSync(settingsPath, JSON.stringify(settingsContent, null, 2));
 
-      fs.writeFileSync(shellConfig, content);
-      s.stop(`代理已配置: ${proxyUrl}`);
-    } else {
-      s.stop('无法确定 shell 配置文件');
-    }
+    s.stop('Gemini 配置完成');
+
+    showBox('配置成功', `
+配置文件目录: ${configPath.config}
+.env: 已创建
+settings.json: 已创建
+
+配置内容:
+  Provider: ${selectedProvider ? selectedProvider.label : '自定义'}
+  Base URL: ${baseUrl}
+  Model: gemini-3-pro-preview
+  API Key: ${'*'.repeat(8)}...
+
+现在可以在终端运行 'gemini' 命令开始使用
+`, 'success');
+
   } catch (error) {
     s.stop('配置失败');
     console.error(theme.error(`配置失败: ${error.message}`));
   }
-}
-
-/**
- * 获取 shell 配置文件路径
- */
-function getShellConfigFile(osInfo) {
-  const home = require('os').homedir();
-  const shell = process.env.SHELL || '';
-
-  if (osInfo.type === 'windows') {
-    return path.join(home, 'Documents', 'PowerShell', 'Microsoft.PowerShell_profile.ps1');
-  }
-
-  if (shell.includes('zsh')) {
-    return path.join(home, '.zshrc');
-  } else if (shell.includes('bash')) {
-    return path.join(home, '.bashrc');
-  }
-
-  return path.join(home, '.bashrc');
 }
 
 /**

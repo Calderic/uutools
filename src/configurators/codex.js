@@ -1,7 +1,35 @@
-const { select, text, password, confirm, isCancel, cancel, spinner } = require('@clack/prompts');
+const { select, text, password, confirm, isCancel, spinner } = require('@clack/prompts');
 const fs = require('fs');
 const path = require('path');
+const { execSync } = require('child_process');
 const { theme, showBox } = require('../ui');
+
+/**
+ * API 提供商列表
+ */
+const API_PROVIDERS = [
+  {
+    label: 'UUcode',
+    value: 'uucode',
+    provider: 'uucode',
+    baseUrl: 'https://api.uucode.org',
+    envKey: 'uucode_apikey'
+  },
+  {
+    label: 'OpenAI ',
+    value: 'openai',
+    provider: 'openai',
+    baseUrl: 'https://api.openai.com/v1',
+    envKey: 'OPENAI_API_KEY'
+  },
+  {
+    label: '其他第三方',
+    value: 'custom',
+    provider: '',
+    baseUrl: '',
+    envKey: ''
+  }
+];
 
 /**
  * 配置 Codex CLI
@@ -27,9 +55,7 @@ async function configureCodex(osInfo, toolInfo, configPath) {
   const configType = await select({
     message: '选择配置类型:',
     options: [
-      { label: '🔑 配置 OpenAI API Key', value: 'apikey' },
-      { label: '⚙️  配置设置文件', value: 'settings' },
-      { label: '🌐 配置代理设置', value: 'proxy' },
+      { label: '📁 配置 API (配置文件 + 环境变量)', value: 'api-config' },
       { label: '↩️  返回', value: 'back' }
     ]
   });
@@ -37,14 +63,8 @@ async function configureCodex(osInfo, toolInfo, configPath) {
   if (isCancel(configType)) return;
 
   switch (configType) {
-    case 'apikey':
-      await configureApiKey(osInfo);
-      break;
-    case 'settings':
-      await configureSettings(configPath);
-      break;
-    case 'proxy':
-      await configureProxy(osInfo);
+    case 'api-config':
+      await configureApi(osInfo, configPath);
       break;
     case 'back':
       return;
@@ -52,11 +72,71 @@ async function configureCodex(osInfo, toolInfo, configPath) {
 }
 
 /**
- * 配置 API Key
+ * 配置 API (配置文件 + 环境变量)
  */
-async function configureApiKey(osInfo) {
+async function configureApi(osInfo, configPath) {
+  // 选择 API 提供商
+  const provider = await select({
+    message: '选择 API 提供商:',
+    options: API_PROVIDERS
+  });
+
+  if (isCancel(provider)) return;
+
+  // 获取 provider 信息
+  const selectedProvider = API_PROVIDERS.find(p => p.value === provider);
+  let providerName = '';
+  let baseUrl = '';
+  let envKey = '';
+
+  if (provider === 'custom') {
+    const customProvider = await text({
+      message: '请输入 Provider 名称:',
+      validate: (input) => {
+        if (!input || input.trim() === '') return '请输入有效的 Provider 名称';
+      }
+    });
+    if (isCancel(customProvider)) return;
+    providerName = customProvider;
+
+    const customBaseUrl = await text({
+      message: '请输入 API Base URL:',
+      validate: (input) => {
+        if (!input || input.trim() === '') return '请输入有效的 URL';
+        try {
+          new URL(input);
+        } catch {
+          return '请输入有效的 URL';
+        }
+      }
+    });
+    if (isCancel(customBaseUrl)) return;
+    baseUrl = customBaseUrl;
+
+    const customEnvKey = await text({
+      message: '请输入环境变量名称:',
+      placeholder: 'CUSTOM_API_KEY',
+      validate: (input) => {
+        if (!input || input.trim() === '') return '请输入有效的环境变量名称';
+      }
+    });
+    if (isCancel(customEnvKey)) return;
+    envKey = customEnvKey;
+  } else {
+    providerName = selectedProvider.provider;
+    baseUrl = selectedProvider.baseUrl;
+    envKey = selectedProvider.envKey;
+  }
+
+  // 输入 API Key
+  const apiKeyMessage = provider === 'uucode'
+    ? '请输入 UUcode API Key:'
+    : provider === 'openai'
+      ? '请输入 OpenAI API Key:'
+      : '请输入 API Key:';
+
   const apiKey = await password({
-    message: '请输入 OpenAI API Key:',
+    message: apiKeyMessage,
     mask: '*',
     validate: (input) => {
       if (!input || input.trim() === '') return '请输入有效的 API Key';
@@ -66,149 +146,85 @@ async function configureApiKey(osInfo) {
   if (isCancel(apiKey)) return;
 
   const s = spinner();
-  s.start('正在配置环境变量...');
+  s.start('正在配置 Codex...');
 
   try {
-    const envVar = `OPENAI_API_KEY=${apiKey}`;
-    const shellConfig = getShellConfigFile(osInfo);
-
-    if (shellConfig) {
-      let content = '';
-      if (fs.existsSync(shellConfig)) {
-        content = fs.readFileSync(shellConfig, 'utf8');
-      }
-
-      if (content.includes('OPENAI_API_KEY=')) {
-        content = content.replace(/export OPENAI_API_KEY=.*/g, `export ${envVar}`);
-      } else {
-        content += `\n# OpenAI Codex API Key\nexport ${envVar}\n`;
-      }
-
-      fs.writeFileSync(shellConfig, content);
-      s.stop(`API Key 已保存到 ${shellConfig}`);
-
-      showBox('配置成功', `
-API Key 已保存。
-请运行 'source ${shellConfig}' 或重新打开终端使配置生效
-`, 'success');
-
-    } else {
-      s.stop('无法确定 shell 配置文件');
-      showBox('手动配置', `
-请手动添加: export ${envVar}
-`, 'warning');
-    }
-  } catch (error) {
-    s.stop('配置失败');
-    console.error(theme.error(`配置失败: ${error.message}`));
-  }
-}
-
-/**
- * 配置设置文件
- */
-async function configureSettings(configPath) {
-  const s = spinner();
-  s.start('正在读取配置...');
-
-  try {
+    // 确保配置目录存在
     if (!fs.existsSync(configPath.config)) {
       fs.mkdirSync(configPath.config, { recursive: true });
     }
 
-    let settings = {};
-    if (fs.existsSync(configPath.settings)) {
-      settings = JSON.parse(fs.readFileSync(configPath.settings, 'utf8'));
-    }
+    // 创建 config.toml (完整配置)
+    const configTomlPath = path.join(configPath.config, 'config.toml');
+    const configTomlContent = `model_provider = "${providerName}"
+model = "gpt-5.1"
+model_reasoning_effort = "high"
+disable_response_storage = true
 
-    s.stop('配置已读取');
+[model_providers.${providerName}]
+name = "${providerName}"
+base_url = "${baseUrl}"
+wire_api = "responses"
+env_key = "${envKey}"
+requires_openai_auth = true
+`;
+    fs.writeFileSync(configTomlPath, configTomlContent);
 
-    const model = await select({
-      message: '选择默认模型:',
-      options: [
-        { label: 'gpt-4', value: 'gpt-4' },
-        { label: 'gpt-4-turbo', value: 'gpt-4-turbo' },
-        { label: 'gpt-3.5-turbo', value: 'gpt-3.5-turbo' },
-        { label: 'o1-preview', value: 'o1-preview' },
-        { label: 'o1-mini', value: 'o1-mini' }
-      ],
-      initialValue: settings.model || 'gpt-4'
-    });
+    // 创建 auth.json
+    const authJsonPath = path.join(configPath.config, 'auth.json');
+    const authJsonContent = {
+      OPENAI_API_KEY: apiKey
+    };
+    fs.writeFileSync(authJsonPath, JSON.stringify(authJsonContent, null, 2));
 
-    if (isCancel(model)) return;
+    // 设置环境变量
+    if (osInfo.type === 'windows') {
+      // Windows: 使用 PowerShell 设置用户级环境变量
+      const cmd = `[System.Environment]::SetEnvironmentVariable("${envKey}", "${apiKey}", [System.EnvironmentVariableTarget]::User)`;
+      execSync(`powershell -Command "${cmd}"`, { stdio: 'ignore' });
+    } else {
+      // macOS/Linux: 写入 shell 配置文件
+      const shellConfig = getShellConfigFile(osInfo);
+      if (shellConfig) {
+        let content = '';
+        if (fs.existsSync(shellConfig)) {
+          content = fs.readFileSync(shellConfig, 'utf8');
+        }
 
-    const approvalMode = await select({
-      message: '选择审批模式:',
-      options: [
-        { label: '建议模式 (需要确认)', value: 'suggest' },
-        { label: '自动执行模式', value: 'auto-edit' },
-        { label: '完全自动模式', value: 'full-auto' }
-      ],
-      initialValue: settings.approvalMode || 'suggest'
-    });
+        // 移除旧的 Codex 配置
+        content = content.replace(/# Codex API Configuration[\s\S]*?export \w+=.*\n/g, '');
+        content = content.replace(/export uucode_apikey=.*\n/g, '');
+        content = content.replace(/export OPENAI_API_KEY=.*\n/g, '');
 
-    if (isCancel(approvalMode)) return;
-
-    settings.model = model;
-    settings.approvalMode = approvalMode;
-
-    fs.writeFileSync(configPath.settings, JSON.stringify(settings, null, 2));
-    console.log(theme.success(`\n✅ 设置已保存到 ${configPath.settings}`));
-  } catch (error) {
-    s.stop('配置失败');
-    console.error(theme.error(`配置失败: ${error.message}`));
-  }
-}
-
-/**
- * 配置代理
- */
-async function configureProxy(osInfo) {
-  const proxyUrl = await text({
-    message: '请输入代理地址 (如 http://127.0.0.1:7890):',
-    validate: (input) => {
-      if (!input) return;
-      try {
-        new URL(input);
-      } catch {
-        return '请输入有效的 URL';
-      }
-    }
-  });
-
-  if (isCancel(proxyUrl)) return;
-
-  if (!proxyUrl) {
-    console.log(theme.warning('\n⚠️  未设置代理'));
-    return;
-  }
-
-  const s = spinner();
-  s.start('正在配置代理...');
-
-  try {
-    const shellConfig = getShellConfigFile(osInfo);
-
-    if (shellConfig) {
-      let content = '';
-      if (fs.existsSync(shellConfig)) {
-        content = fs.readFileSync(shellConfig, 'utf8');
-      }
-
-      const proxyConfig = `
-# Codex Proxy
-export HTTP_PROXY=${proxyUrl}
-export HTTPS_PROXY=${proxyUrl}
+        // 添加新配置
+        const envConfig = `
+# Codex API Configuration
+export ${envKey}=${apiKey}
 `;
 
-      content = content.replace(/# Codex Proxy[\s\S]*?export HTTPS_PROXY=.*\n/g, '');
-      content += proxyConfig;
-
-      fs.writeFileSync(shellConfig, content);
-      s.stop(`代理已配置: ${proxyUrl}`);
-    } else {
-      s.stop('无法确定 shell 配置文件');
+        content += envConfig;
+        fs.writeFileSync(shellConfig, content);
+      }
     }
+
+    s.stop('Codex 配置完成');
+
+    showBox('配置成功', `
+配置文件目录: ${configPath.config}
+config.toml: 已创建
+auth.json: 已创建
+
+配置内容:
+  Provider: ${providerName}
+  Base URL: ${baseUrl}
+  Model: gpt-5.1
+  API Key: ${'*'.repeat(8)}...
+
+${osInfo.type === 'windows'
+  ? '请重新打开终端或命令提示符使环境变量生效'
+  : `请运行 'source ${getShellConfigFile(osInfo)}' 或重新打开终端`}
+`, 'success');
+
   } catch (error) {
     s.stop('配置失败');
     console.error(theme.error(`配置失败: ${error.message}`));
