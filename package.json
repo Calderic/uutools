@@ -1,5 +1,5 @@
 {
-  "name": "uutool",
+  "name": "@calderic/uutools",
   "version": "1.0.0",
   "description": "一键配置 AI 编码工具 (Claude Code, Codex, Gemini)",
   "main": "src/index.js",
