@@ -1,36 +1,10 @@
-const inquirer = require('inquirer');
+const { intro, outro, select, confirm, isCancel, cancel } = require('@clack/prompts');
 const chalk = require('chalk');
 const { detectOS, detectTools, getConfigPaths } = require('./system');
 const { configureClaude } = require('./configurators/claude');
 const { configureCodex } = require('./configurators/codex');
 const { configureGemini } = require('./configurators/gemini');
-
-/**
- * 主菜单选项
- */
-const mainMenuChoices = [
-  {
-    name: '🤖 配置 Claude Code',
-    value: 'claude'
-  },
-  {
-    name: '💻 配置 Codex CLI',
-    value: 'codex'
-  },
-  {
-    name: '✨ 配置 Gemini CLI',
-    value: 'gemini'
-  },
-  {
-    name: '📦 配置全部工具',
-    value: 'all'
-  },
-  new inquirer.Separator(),
-  {
-    name: '❌ 退出',
-    value: 'exit'
-  }
-];
+const { theme } = require('./ui');
 
 /**
  * 启动交互式菜单
@@ -40,18 +14,22 @@ async function startInteractiveMenu() {
   const tools = detectTools();
   const configPaths = getConfigPaths(osInfo);
 
-  while (true) {
-    const { action } = await inquirer.prompt([
-      {
-        type: 'list',
-        name: 'action',
-        message: '请选择要配置的工具:',
-        choices: mainMenuChoices
-      }
-    ]);
+  intro(theme.primary('UUTools 配置向导'));
 
-    if (action === 'exit') {
-      console.log(chalk.cyan('\n👋 感谢使用 UUTools，再见！\n'));
+  while (true) {
+    const action = await select({
+      message: '请选择要配置的工具:',
+      options: [
+        { value: 'claude', label: '🤖 配置 Claude Code', hint: tools.claude.installed ? '已安装' : '未安装' },
+        { value: 'codex', label: '💻 配置 Codex CLI', hint: tools.codex.installed ? '已安装' : '未安装' },
+        { value: 'gemini', label: '✨ 配置 Gemini CLI', hint: tools.gemini.installed ? '已安装' : '未安装' },
+        { value: 'all', label: '📦 配置全部工具' },
+        { value: 'exit', label: '❌ 退出' }
+      ]
+    });
+
+    if (isCancel(action) || action === 'exit') {
+      outro(theme.primary('👋 感谢使用 UUTools，再见！'));
       break;
     }
 
@@ -71,25 +49,21 @@ async function startInteractiveMenu() {
           break;
       }
     } catch (error) {
-      console.error(chalk.red(`\n❌ 配置出错: ${error.message}\n`));
+      console.error(theme.error(`\n❌ 配置出错: ${error.message}\n`));
     }
 
     // 询问是否继续
-    const { continueConfig } = await inquirer.prompt([
-      {
-        type: 'confirm',
-        name: 'continueConfig',
-        message: '是否继续配置其他工具?',
-        default: true
-      }
-    ]);
+    const continueConfig = await confirm({
+      message: '是否继续配置其他工具?',
+      initialValue: true
+    });
 
-    if (!continueConfig) {
-      console.log(chalk.cyan('\n👋 感谢使用 UUTools，再见！\n'));
+    if (isCancel(continueConfig) || !continueConfig) {
+      outro(theme.primary('👋 感谢使用 UUTools，再见！'));
       break;
     }
 
-    console.log(''); // 空行分隔
+    console.clear();
   }
 }
 
@@ -97,21 +71,21 @@ async function startInteractiveMenu() {
  * 配置全部工具
  */
 async function configureAll(osInfo, tools, configPaths) {
-  console.log(chalk.bold.yellow('\n📦 开始配置全部工具...\n'));
+  console.log(theme.warning('\n📦 开始配置全部工具...\n'));
 
   // Claude
-  console.log(chalk.bold.cyan('━━━ Claude Code ━━━'));
+  console.log(theme.primary('━━━ Claude Code ━━━'));
   await configureClaude(osInfo, tools.claude, configPaths.claude);
 
   // Codex
-  console.log(chalk.bold.cyan('\n━━━ Codex CLI ━━━'));
+  console.log(theme.primary('\n━━━ Codex CLI ━━━'));
   await configureCodex(osInfo, tools.codex, configPaths.codex);
 
   // Gemini
-  console.log(chalk.bold.cyan('\n━━━ Gemini CLI ━━━'));
+  console.log(theme.primary('\n━━━ Gemini CLI ━━━'));
   await configureGemini(osInfo, tools.gemini, configPaths.gemini);
 
-  console.log(chalk.bold.green('\n✅ 全部工具配置完成！\n'));
+  console.log(theme.success('\n✅ 全部工具配置完成！\n'));
 }
 
 module.exports = {

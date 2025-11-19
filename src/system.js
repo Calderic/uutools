@@ -143,26 +143,29 @@ async function showSystemInfo() {
   const osInfo = detectOS();
   const tools = detectTools();
   const configPaths = getConfigPaths(osInfo);
+  const { showBanner, showBox, theme } = require('./ui');
 
-  console.log('\n' + chalk.bold.cyan('═══════════════════════════════════════'));
-  console.log(chalk.bold.cyan('       🛠  UUTools - AI 工具配置器'));
-  console.log(chalk.bold.cyan('═══════════════════════════════════════\n'));
+  showBanner();
 
   // 系统信息
-  console.log(chalk.bold.white('📍 系统信息:'));
-  console.log(`   操作系统: ${chalk.green(osInfo.name)}`);
-  console.log(`   版本: ${chalk.gray(osInfo.release)}`);
-  console.log(`   主目录: ${chalk.gray(getHomeDir())}\n`);
+  const sysInfoContent = `
+操作系统: ${theme.primary(osInfo.name)}
+版本: ${theme.dim(osInfo.release)}
+主目录: ${theme.dim(getHomeDir())}
+`.trim();
+
+  showBox('系统信息', sysInfoContent, 'info');
 
   // 工具状态
-  console.log(chalk.bold.white('🔧 工具安装状态:'));
+  let toolsContent = '';
   Object.values(tools).forEach(tool => {
     const status = tool.installed
-      ? chalk.green('✓ 已安装')
-      : chalk.red('✗ 未安装');
-    console.log(`   ${tool.name}: ${status}`);
+      ? theme.success('✓ 已安装')
+      : theme.error('✗ 未安装');
+    toolsContent += `   ${tool.name}: ${status}\n`;
   });
-  console.log('');
+
+  showBox('工具安装状态', toolsContent.trim(), 'info');
 
   return { osInfo, tools, configPaths };
 }

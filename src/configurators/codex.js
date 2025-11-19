@@ -1,23 +1,20 @@
-const inquirer = require('inquirer');
-const chalk = require('chalk');
+const { select, text, password, confirm, isCancel, cancel, spinner } = require('@clack/prompts');
 const fs = require('fs');
 const path = require('path');
-const ora = require('ora');
+const { theme, showBox } = require('../ui');
 
 /**
  * 配置 Codex CLI
  */
 async function configureCodex(osInfo, toolInfo, configPath) {
   if (!toolInfo.installed) {
-    console.log(chalk.yellow('\n⚠️  Codex CLI 未安装'));
-    const { installNow } = await inquirer.prompt([
-      {
-        type: 'confirm',
-        name: 'installNow',
-        message: '是否显示安装指南?',
-        default: true
-      }
-    ]);
+    console.log(theme.warning('\n⚠️  Codex CLI 未安装'));
+    const installNow = await confirm({
+      message: '是否显示安装指南?',
+      initialValue: true
+    });
+
+    if (isCancel(installNow)) return;
 
     if (installNow) {
       showInstallGuide(osInfo);
@@ -25,21 +22,19 @@ async function configureCodex(osInfo, toolInfo, configPath) {
     return;
   }
 
-  console.log(chalk.green('\n✓ Codex CLI 已安装'));
+  console.log(theme.success('\n✓ Codex CLI 已安装'));
 
-  const { configType } = await inquirer.prompt([
-    {
-      type: 'list',
-      name: 'configType',
-      message: '选择配置类型:',
-      choices: [
-        { name: '🔑 配置 OpenAI API Key', value: 'apikey' },
-        { name: '⚙️  配置设置文件', value: 'settings' },
-        { name: '🌐 配置代理设置', value: 'proxy' },
-        { name: '↩️  返回', value: 'back' }
-      ]
-    }
-  ]);
+  const configType = await select({
+    message: '选择配置类型:',
+    options: [
+      { label: '🔑 配置 OpenAI API Key', value: 'apikey' },
+      { label: '⚙️  配置设置文件', value: 'settings' },
+      { label: '🌐 配置代理设置', value: 'proxy' },
+      { label: '↩️  返回', value: 'back' }
+    ]
+  });
+
+  if (isCancel(configType)) return;
 
   switch (configType) {
     case 'apikey':
@@ -60,22 +55,18 @@ async function configureCodex(osInfo, toolInfo, configPath) {
  * 配置 API Key
  */
 async function configureApiKey(osInfo) {
-  const { apiKey } = await inquirer.prompt([
-    {
-      type: 'password',
-      name: 'apiKey',
-      message: '请输入 OpenAI API Key:',
-      mask: '*',
-      validate: (input) => {
-        if (!input || input.trim() === '') {
-          return '请输入有效的 API Key';
-        }
-        return true;
-      }
+  const apiKey = await password({
+    message: '请输入 OpenAI API Key:',
+    mask: '*',
+    validate: (input) => {
+      if (!input || input.trim() === '') return '请输入有效的 API Key';
     }
-  ]);
+  });
 
-  const spinner = ora('正在配置环境变量...').start();
+  if (isCancel(apiKey)) return;
+
+  const s = spinner();
+  s.start('正在配置环境变量...');
 
   try {
     const envVar = `OPENAI_API_KEY=${apiKey}`;
@@ -94,14 +85,22 @@ async function configureApiKey(osInfo) {
       }
 
       fs.writeFileSync(shellConfig, content);
-      spinner.succeed(`API Key 已保存到 ${shellConfig}`);
-      console.log(chalk.gray(`   请运行 'source ${shellConfig}' 或重新打开终端使配置生效`));
+      s.stop(`API Key 已保存到 ${shellConfig}`);
+
+      showBox('配置成功', `
+API Key 已保存。
+请运行 'source ${shellConfig}' 或重新打开终端使配置生效
+`, 'success');
+
     } else {
-      spinner.warn('无法确定 shell 配置文件');
-      console.log(chalk.yellow(`   请手动添加: export ${envVar}`));
+      s.stop('无法确定 shell 配置文件');
+      showBox('手动配置', `
+请手动添加: export ${envVar}
+`, 'warning');
     }
   } catch (error) {
-    spinner.fail(`配置失败: ${error.message}`);
+    s.stop('配置失败');
+    console.error(theme.error(`配置失败: ${error.message}`));
   }
 }
 
@@ -109,7 +108,8 @@ async function configureApiKey(osInfo) {
  * 配置设置文件
  */
 async function configureSettings(configPath) {
-  const spinner = ora('正在读取配置...').start();
+  const s = spinner();
+  s.start('正在读取配置...');
 
   try {
     if (!fs.existsSync(configPath.config)) {
@@ -121,42 +121,42 @@ async function configureSettings(configPath) {
       settings = JSON.parse(fs.readFileSync(configPath.settings, 'utf8'));
     }
 
-    spinner.stop();
+    s.stop('配置已读取');
 
-    const { model, approvalMode } = await inquirer.prompt([
-      {
-        type: 'list',
-        name: 'model',
-        message: '选择默认模型:',
-        choices: [
-          'gpt-4',
-          'gpt-4-turbo',
-          'gpt-3.5-turbo',
-          'o1-preview',
-          'o1-mini'
-        ],
-        default: settings.model || 'gpt-4'
-      },
-      {
-        type: 'list',
-        name: 'approvalMode',
-        message: '选择审批模式:',
-        choices: [
-          { name: '建议模式 (需要确认)', value: 'suggest' },
-          { name: '自动执行模式', value: 'auto-edit' },
-          { name: '完全自动模式', value: 'full-auto' }
-        ],
-        default: settings.approvalMode || 'suggest'
-      }
-    ]);
+    const model = await select({
+      message: '选择默认模型:',
+      options: [
+        { label: 'gpt-4', value: 'gpt-4' },
+        { label: 'gpt-4-turbo', value: 'gpt-4-turbo' },
+        { label: 'gpt-3.5-turbo', value: 'gpt-3.5-turbo' },
+        { label: 'o1-preview', value: 'o1-preview' },
+        { label: 'o1-mini', value: 'o1-mini' }
+      ],
+      initialValue: settings.model || 'gpt-4'
+    });
+
+    if (isCancel(model)) return;
+
+    const approvalMode = await select({
+      message: '选择审批模式:',
+      options: [
+        { label: '建议模式 (需要确认)', value: 'suggest' },
+        { label: '自动执行模式', value: 'auto-edit' },
+        { label: '完全自动模式', value: 'full-auto' }
+      ],
+      initialValue: settings.approvalMode || 'suggest'
+    });
+
+    if (isCancel(approvalMode)) return;
 
     settings.model = model;
     settings.approvalMode = approvalMode;
 
     fs.writeFileSync(configPath.settings, JSON.stringify(settings, null, 2));
-    console.log(chalk.green(`\n✅ 设置已保存到 ${configPath.settings}`));
+    console.log(theme.success(`\n✅ 设置已保存到 ${configPath.settings}`));
   } catch (error) {
-    spinner.fail(`配置失败: ${error.message}`);
+    s.stop('配置失败');
+    console.error(theme.error(`配置失败: ${error.message}`));
   }
 }
 
@@ -164,29 +164,27 @@ async function configureSettings(configPath) {
  * 配置代理
  */
 async function configureProxy(osInfo) {
-  const { proxyUrl } = await inquirer.prompt([
-    {
-      type: 'input',
-      name: 'proxyUrl',
-      message: '请输入代理地址 (如 http://127.0.0.1:7890):',
-      validate: (input) => {
-        if (!input) return true;
-        try {
-          new URL(input);
-          return true;
-        } catch {
-          return '请输入有效的 URL';
-        }
+  const proxyUrl = await text({
+    message: '请输入代理地址 (如 http://127.0.0.1:7890):',
+    validate: (input) => {
+      if (!input) return;
+      try {
+        new URL(input);
+      } catch {
+        return '请输入有效的 URL';
       }
     }
-  ]);
+  });
+
+  if (isCancel(proxyUrl)) return;
 
   if (!proxyUrl) {
-    console.log(chalk.yellow('\n⚠️  未设置代理'));
+    console.log(theme.warning('\n⚠️  未设置代理'));
     return;
   }
 
-  const spinner = ora('正在配置代理...').start();
+  const s = spinner();
+  s.start('正在配置代理...');
 
   try {
     const shellConfig = getShellConfigFile(osInfo);
@@ -207,12 +205,13 @@ export HTTPS_PROXY=${proxyUrl}
       content += proxyConfig;
 
       fs.writeFileSync(shellConfig, content);
-      spinner.succeed(`代理已配置: ${proxyUrl}`);
+      s.stop(`代理已配置: ${proxyUrl}`);
     } else {
-      spinner.warn('无法确定 shell 配置文件');
+      s.stop('无法确定 shell 配置文件');
     }
   } catch (error) {
-    spinner.fail(`配置失败: ${error.message}`);
+    s.stop('配置失败');
+    console.error(theme.error(`配置失败: ${error.message}`));
   }
 }
 
@@ -240,12 +239,12 @@ function getShellConfigFile(osInfo) {
  * 显示安装指南
  */
 function showInstallGuide(osInfo) {
-  console.log(chalk.bold.cyan('\n📖 Codex CLI 安装指南:\n'));
+  showBox('Codex CLI 安装指南', `
+使用 npm 安装:
+npm install -g @openai/codex
 
-  console.log(chalk.white('使用 npm 安装:'));
-  console.log(chalk.gray('   npm install -g @openai/codex\n'));
-
-  console.log(chalk.gray('安装完成后重新运行此工具进行配置。\n'));
+安装完成后重新运行此工具进行配置。
+`, 'info');
 }
 
 module.exports = {

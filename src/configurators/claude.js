@@ -1,26 +1,25 @@
-const inquirer = require('inquirer');
-const chalk = require('chalk');
+const { select, text, password, confirm, isCancel, cancel, spinner } = require('@clack/prompts');
 const fs = require('fs');
 const path = require('path');
-const ora = require('ora');
 const { execSync } = require('child_process');
+const { theme, showBox } = require('../ui');
 
 /**
  * API 提供商列表
  */
 const API_PROVIDERS = [
   {
-    name: 'UUcode',
+    label: 'UUcode',
     value: 'uucode',
     baseUrl: 'https://www.uucode.org'
   },
   {
-    name: 'Anthropic (官方)',
+    label: 'Anthropic (官方)',
     value: 'anthropic',
     baseUrl: 'https://api.anthropic.com'
   },
   {
-    name: '其他第三方',
+    label: '其他第三方',
     value: 'custom',
     baseUrl: ''
   }
@@ -31,15 +30,13 @@ const API_PROVIDERS = [
  */
 async function configureClaude(osInfo, toolInfo, configPath) {
   if (!toolInfo.installed) {
-    console.log(chalk.yellow('\n⚠️  Claude Code 未安装'));
-    const { installNow } = await inquirer.prompt([
-      {
-        type: 'confirm',
-        name: 'installNow',
-        message: '是否显示安装指南?',
-        default: true
-      }
-    ]);
+    console.log(theme.warning('\n⚠️  Claude Code 未安装'));
+    const installNow = await confirm({
+      message: '是否显示安装指南?',
+      initialValue: true
+    });
+
+    if (isCancel(installNow)) return;
 
     if (installNow) {
       showInstallGuide(osInfo);
@@ -47,20 +44,18 @@ async function configureClaude(osInfo, toolInfo, configPath) {
     return;
   }
 
-  console.log(chalk.green('\n✓ Claude Code 已安装'));
+  console.log(theme.success('\n✓ Claude Code 已安装'));
 
-  const { configType } = await inquirer.prompt([
-    {
-      type: 'list',
-      name: 'configType',
-      message: '选择配置类型:',
-      choices: [
-        { name: '📁 配置 API (配置文件)', value: 'api-file' },
-        { name: '🌍 配置 API (环境变量)', value: 'api-env' },
-        { name: '↩️  返回', value: 'back' }
-      ]
-    }
-  ]);
+  const configType = await select({
+    message: '选择配置类型:',
+    options: [
+      { label: '📁 配置 API (配置文件)', value: 'api-file' },
+      { label: '🌍 配置 API (环境变量)', value: 'api-env' },
+      { label: '↩️  返回', value: 'back' }
+    ]
+  });
+
+  if (isCancel(configType)) return;
 
   switch (configType) {
     case 'api-file':
@@ -79,63 +74,48 @@ async function configureClaude(osInfo, toolInfo, configPath) {
  */
 async function configureApiByFile(configPath) {
   // 选择 API 提供商
-  const { provider } = await inquirer.prompt([
-    {
-      type: 'list',
-      name: 'provider',
-      message: '选择 API 提供商:',
-      choices: API_PROVIDERS.map(p => ({
-        name: p.name,
-        value: p.value
-      }))
-    }
-  ]);
+  const provider = await select({
+    message: '选择 API 提供商:',
+    options: API_PROVIDERS
+  });
+
+  if (isCancel(provider)) return;
 
   // 获取 base URL
   let baseUrl = '';
   const selectedProvider = API_PROVIDERS.find(p => p.value === provider);
 
   if (provider === 'custom') {
-    const { customUrl } = await inquirer.prompt([
-      {
-        type: 'input',
-        name: 'customUrl',
-        message: '请输入 API Base URL:',
-        validate: (input) => {
-          if (!input || input.trim() === '') {
-            return '请输入有效的 URL';
-          }
-          try {
-            new URL(input);
-            return true;
-          } catch {
-            return '请输入有效的 URL';
-          }
+    const customUrl = await text({
+      message: '请输入 API Base URL:',
+      validate: (input) => {
+        if (!input || input.trim() === '') return '请输入有效的 URL';
+        try {
+          new URL(input);
+        } catch {
+          return '请输入有效的 URL';
         }
       }
-    ]);
+    });
+    if (isCancel(customUrl)) return;
     baseUrl = customUrl;
   } else {
     baseUrl = selectedProvider.baseUrl;
   }
 
   // 输入 API Key
-  const { apiKey } = await inquirer.prompt([
-    {
-      type: 'password',
-      name: 'apiKey',
-      message: '请输入 API Key:',
-      mask: '*',
-      validate: (input) => {
-        if (!input || input.trim() === '') {
-          return '请输入有效的 API Key';
-        }
-        return true;
-      }
+  const apiKey = await password({
+    message: '请输入 API Key:',
+    mask: '*',
+    validate: (input) => {
+      if (!input || input.trim() === '') return '请输入有效的 API Key';
     }
-  ]);
+  });
 
-  const spinner = ora('正在配置 settings.json...').start();
+  if (isCancel(apiKey)) return;
+
+  const s = spinner();
+  s.start('正在配置 settings.json...');
 
   try {
     // 确保配置目录存在
@@ -149,20 +129,14 @@ async function configureApiByFile(configPath) {
       try {
         settings = JSON.parse(fs.readFileSync(configPath.settings, 'utf8'));
       } catch (e) {
-        // 文件存在但解析失败，使用空对象
         settings = {};
       }
     }
 
     // 确保 env 和 permissions 对象存在
-    if (!settings.env) {
-      settings.env = {};
-    }
+    if (!settings.env) settings.env = {};
     if (!settings.permissions) {
-      settings.permissions = {
-        allow: [],
-        deny: []
-      };
+      settings.permissions = { allow: [], deny: [] };
     }
 
     // 设置环境变量
@@ -176,18 +150,21 @@ async function configureApiByFile(configPath) {
     // 配置 VSCode 支持 (config.json)
     await configureVSCodeSupport(configPath, apiKey);
 
-    spinner.succeed('配置文件已更新');
-    console.log(chalk.green(`\n✅ 配置已保存到 ${configPath.settings}`));
-    console.log(chalk.gray('\n配置内容:'));
-    console.log(chalk.gray(`   API 提供商: ${selectedProvider ? selectedProvider.name : '自定义'}`));
-    console.log(chalk.gray(`   Base URL: ${baseUrl}`));
-    console.log(chalk.gray(`   API Key: ${'*'.repeat(8)}...`));
+    s.stop('配置文件已更新');
+
+    showBox('配置成功', `
+配置文件: ${configPath.settings}
+API 提供商: ${selectedProvider ? selectedProvider.label : '自定义'}
+Base URL: ${baseUrl}
+API Key: ${'*'.repeat(8)}...
+`, 'success');
 
     // 提示安装 VSCode 扩展
     showVSCodeExtensionTip();
 
   } catch (error) {
-    spinner.fail(`配置失败: ${error.message}`);
+    s.stop('配置失败');
+    console.error(theme.error(`配置失败: ${error.message}`));
   }
 }
 
@@ -196,63 +173,48 @@ async function configureApiByFile(configPath) {
  */
 async function configureApiByEnv(osInfo, configPath) {
   // 选择 API 提供商
-  const { provider } = await inquirer.prompt([
-    {
-      type: 'list',
-      name: 'provider',
-      message: '选择 API 提供商:',
-      choices: API_PROVIDERS.map(p => ({
-        name: p.name,
-        value: p.value
-      }))
-    }
-  ]);
+  const provider = await select({
+    message: '选择 API 提供商:',
+    options: API_PROVIDERS
+  });
+
+  if (isCancel(provider)) return;
 
   // 获取 base URL
   let baseUrl = '';
   const selectedProvider = API_PROVIDERS.find(p => p.value === provider);
 
   if (provider === 'custom') {
-    const { customUrl } = await inquirer.prompt([
-      {
-        type: 'input',
-        name: 'customUrl',
-        message: '请输入 API Base URL:',
-        validate: (input) => {
-          if (!input || input.trim() === '') {
-            return '请输入有效的 URL';
-          }
-          try {
-            new URL(input);
-            return true;
-          } catch {
-            return '请输入有效的 URL';
-          }
+    const customUrl = await text({
+      message: '请输入 API Base URL:',
+      validate: (input) => {
+        if (!input || input.trim() === '') return '请输入有效的 URL';
+        try {
+          new URL(input);
+        } catch {
+          return '请输入有效的 URL';
         }
       }
-    ]);
+    });
+    if (isCancel(customUrl)) return;
     baseUrl = customUrl;
   } else {
     baseUrl = selectedProvider.baseUrl;
   }
 
   // 输入 API Key
-  const { apiKey } = await inquirer.prompt([
-    {
-      type: 'password',
-      name: 'apiKey',
-      message: '请输入 API Key:',
-      mask: '*',
-      validate: (input) => {
-        if (!input || input.trim() === '') {
-          return '请输入有效的 API Key';
-        }
-        return true;
-      }
+  const apiKey = await password({
+    message: '请输入 API Key:',
+    mask: '*',
+    validate: (input) => {
+      if (!input || input.trim() === '') return '请输入有效的 API Key';
     }
-  ]);
+  });
 
-  const spinner = ora('正在配置环境变量...').start();
+  if (isCancel(apiKey)) return;
+
+  const s = spinner();
+  s.start('正在配置环境变量...');
 
   try {
     if (osInfo.type === 'windows') {
@@ -267,12 +229,12 @@ async function configureApiByEnv(osInfo, configPath) {
         execSync(`powershell -Command "${cmd}"`, { stdio: 'ignore' });
       }
 
-      spinner.succeed('环境变量已设置 (用户级永久生效)');
+      s.stop('环境变量已设置 (用户级永久生效)');
 
       // 配置 VSCode 支持 (config.json)
       await configureVSCodeSupport(configPath, apiKey);
 
-      console.log(chalk.gray('\n请重新打开终端或命令提示符使配置生效'));
+      console.log(theme.dim('\n请重新打开终端或命令提示符使配置生效'));
 
       // 提示安装 VSCode 扩展
       showVSCodeExtensionTip();
@@ -305,28 +267,34 @@ export CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
         content += envConfig;
 
         fs.writeFileSync(shellConfig, content);
-        spinner.succeed(`环境变量已保存到 ${shellConfig}`);
+        s.stop(`环境变量已保存到 ${shellConfig}`);
 
         // 配置 VSCode 支持 (config.json)
         await configureVSCodeSupport(configPath, apiKey);
 
-        console.log(chalk.gray(`\n请运行以下命令使配置生效:`));
-        console.log(chalk.cyan(`   source ${shellConfig}`));
-        console.log(chalk.gray('\n或重新打开终端'));
+        showBox('配置成功', `
+请运行以下命令使配置生效:
+source ${shellConfig}
+
+或重新打开终端
+`, 'success');
 
         // 提示安装 VSCode 扩展
         showVSCodeExtensionTip();
 
       } else {
-        spinner.warn('无法确定 shell 配置文件');
-        console.log(chalk.yellow('\n请手动添加以下环境变量:'));
-        console.log(chalk.gray(`   export ANTHROPIC_AUTH_TOKEN=${apiKey}`));
-        console.log(chalk.gray(`   export ANTHROPIC_BASE_URL=${baseUrl}`));
-        console.log(chalk.gray(`   export CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1`));
+        s.stop('无法确定 shell 配置文件');
+        showBox('手动配置', `
+请手动添加以下环境变量:
+export ANTHROPIC_AUTH_TOKEN=${apiKey}
+export ANTHROPIC_BASE_URL=${baseUrl}
+export CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
+`, 'warning');
       }
     }
   } catch (error) {
-    spinner.fail(`配置失败: ${error.message}`);
+    s.stop('配置失败');
+    console.error(theme.error(`配置失败: ${error.message}`));
   }
 }
 
@@ -358,10 +326,10 @@ async function configureVSCodeSupport(configPath, apiKey) {
 
     // 写入文件
     fs.writeFileSync(configJsonPath, JSON.stringify(config, null, 2));
-    console.log(chalk.green(`✅ VSCode 支持已配置: ${configJsonPath}`));
+    console.log(theme.success(`✅ VSCode 支持已配置: ${configJsonPath}`));
 
   } catch (error) {
-    console.log(chalk.yellow(`⚠️  VSCode 配置失败: ${error.message}`));
+    console.log(theme.warning(`⚠️  VSCode 配置失败: ${error.message}`));
   }
 }
 
@@ -369,9 +337,10 @@ async function configureVSCodeSupport(configPath, apiKey) {
  * 显示 VSCode 扩展安装提示
  */
 function showVSCodeExtensionTip() {
-  console.log(chalk.bold.cyan('\n📦 VSCode 扩展:'));
-  console.log(chalk.white('   请在 VSCode 扩展市场安装 "Claude Code for VS Code"'));
-  console.log(chalk.gray('   或在 VSCode 中搜索: Claude Code'));
+  showBox('VSCode 扩展', `
+请在 VSCode 扩展市场安装 "Claude Code for VS Code"
+或在 VSCode 中搜索: Claude Code
+`, 'info');
 }
 
 /**
@@ -402,19 +371,22 @@ function getShellConfigFile(osInfo) {
  * 显示安装指南
  */
 function showInstallGuide(osInfo) {
-  console.log(chalk.bold.cyan('\n📖 Claude Code 安装指南:\n'));
-
-  console.log(chalk.white('使用 npm 安装:'));
-  console.log(chalk.gray('   npm install -g @anthropic-ai/claude-code\n'));
-
-  console.log(chalk.white('或使用官方安装脚本:'));
+  let installCmd = '';
   if (osInfo.type === 'windows') {
-    console.log(chalk.gray('   irm https://claude.ai/install.ps1 | iex\n'));
+    installCmd = 'irm https://claude.ai/install.ps1 | iex';
   } else {
-    console.log(chalk.gray('   curl -fsSL https://claude.ai/install.sh | sh\n'));
+    installCmd = 'curl -fsSL https://claude.ai/install.sh | sh';
   }
 
-  console.log(chalk.gray('安装完成后重新运行此工具进行配置。\n'));
+  showBox('Claude Code 安装指南', `
+使用 npm 安装:
+npm install -g @anthropic-ai/claude-code
+
+或使用官方安装脚本:
+${installCmd}
+
+安装完成后重新运行此工具进行配置。
+`, 'info');
 }
 
 module.exports = {
