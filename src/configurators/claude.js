@@ -11,7 +11,7 @@ const API_PROVIDERS = [
   {
     label: 'UUcode',
     value: 'uucode',
-    baseUrl: 'https://www.uucode.org'
+    baseUrl: 'https://api.uucode.org'
   },
   {
     label: 'Anthropic (官方)',

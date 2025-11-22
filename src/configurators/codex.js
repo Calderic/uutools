@@ -1,7 +1,7 @@
 const { select, text, password, confirm, isCancel, spinner } = require('@clack/prompts');
 const fs = require('fs');
 const path = require('path');
-const { execSync } = require('child_process');
+const { spawnSync } = require('child_process');
 const { theme, showBox } = require('../ui');
 
 /**
@@ -147,6 +147,7 @@ async function configureApi(osInfo, configPath) {
 
   const s = spinner();
   s.start('正在配置 Codex...');
+  let windowsShell = null;
 
   try {
     // 确保配置目录存在
@@ -179,9 +180,8 @@ requires_openai_auth = true
 
     // 设置环境变量
     if (osInfo.type === 'windows') {
-      // Windows: 使用 PowerShell 设置用户级环境变量
-      const cmd = `[System.Environment]::SetEnvironmentVariable("${envKey}", "${apiKey}", [System.EnvironmentVariableTarget]::User)`;
-      execSync(`powershell -Command "${cmd}"`, { stdio: 'ignore' });
+      windowsShell = detectWindowsShell();
+      setWindowsEnvVariable(envKey, apiKey, windowsShell);
     } else {
       // macOS/Linux: 写入 shell 配置文件
       const shellConfig = getShellConfigFile(osInfo);
@@ -221,7 +221,7 @@ auth.json: 已创建
   API Key: ${'*'.repeat(8)}...
 
 ${osInfo.type === 'windows'
-  ? '请重新打开终端或命令提示符使环境变量生效'
+  ? getWindowsReloadTip(windowsShell)
   : `请运行 'source ${getShellConfigFile(osInfo)}' 或重新打开终端`}
 `, 'success');
 
@@ -249,6 +249,55 @@ function getShellConfigFile(osInfo) {
   }
 
   return path.join(home, '.bashrc');
+}
+
+/**
+ * 检测 Windows 下正在使用的 shell
+ */
+function detectWindowsShell() {
+  const shellEnv = (process.env.SHELL || '').toLowerCase();
+  if (shellEnv.includes('powershell')) return 'powershell';
+  if (shellEnv.includes('cmd')) return 'cmd';
+
+  if (process.env.POWERSHELL_DISTRIBUTION_CHANNEL || process.env.PSExecutionPolicyPreference) {
+    return 'powershell';
+  }
+
+  // cmd 默认带 PROMPT 环境变量，PowerShell 通常没有
+  if (process.env.PROMPT) return 'cmd';
+
+  return 'powershell';
+}
+
+/**
+ * 在 Windows 下设置用户级环境变量
+ */
+function setWindowsEnvVariable(key, value, preferredShell = 'powershell') {
+  const safeValue = String(value);
+
+  if (preferredShell === 'cmd') {
+    const cmdResult = spawnSync('setx', [key, safeValue], { stdio: 'ignore' });
+    if (!cmdResult.error && cmdResult.status === 0) return;
+  }
+
+  const escapedValue = safeValue.replace(/'/g, "''");
+  const psCommand = `[System.Environment]::SetEnvironmentVariable('${key}', '${escapedValue}', [System.EnvironmentVariableTarget]::User)`;
+  const psResult = spawnSync('powershell', ['-NoProfile', '-Command', psCommand], { stdio: 'ignore' });
+
+  if (psResult.error || psResult.status !== 0) {
+    const fallback = spawnSync('setx', [key, safeValue], { stdio: 'ignore' });
+    if (fallback.error || fallback.status !== 0) {
+      throw new Error('无法在 Windows 上设置环境变量，请手动设置后重试');
+    }
+  }
+}
+
+/**
+ * Windows 下的生效提示
+ */
+function getWindowsReloadTip(shell) {
+  const target = shell === 'cmd' ? '命令提示符 (cmd)' : 'PowerShell';
+  return `请重新打开 ${target} 使环境变量生效`;
 }
 
 /**

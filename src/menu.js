@@ -186,7 +186,7 @@ async function configureClaudeWithUUcode(osInfo, configPath, apiKey) {
   }
 
   settings.env.ANTHROPIC_AUTH_TOKEN = apiKey;
-  settings.env.ANTHROPIC_BASE_URL = 'https://www.uucode.org';
+  settings.env.ANTHROPIC_BASE_URL = 'https://api.uucode.org';
   settings.env.CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC = '1';
 
   fs.writeFileSync(configPath.settings, JSON.stringify(settings, null, 2));
