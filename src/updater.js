@@ -116,6 +116,36 @@ async function checkAndCacheUpdates() {
 }
 
 /**
+ * 主动检查更新并返回结果
+ */
+async function checkForUpdates() {
+  const currentVersion = getCurrentVersion();
+
+  try {
+    const latestVersion = await getLatestVersion();
+    const hasUpdate = compareVersions(currentVersion, latestVersion) === 1;
+
+    const updateInfo = {
+      lastCheck: Date.now(),
+      hasUpdate,
+      currentVersion,
+      latestVersion
+    };
+
+    saveUpdateInfo(updateInfo);
+    return updateInfo;
+  } catch (error) {
+    return {
+      lastCheck: Date.now(),
+      hasUpdate: false,
+      currentVersion,
+      latestVersion: currentVersion,
+      error: error.message
+    };
+  }
+}
+
+/**
  * 启动后台检查进程
  */
 function spawnBackgroundCheck() {
@@ -164,6 +194,7 @@ if (require.main === module) {
 
 module.exports = {
   getCurrentVersion,
+  checkForUpdates,
   loadUpdateInfo,
   spawnBackgroundCheck,
   syncUpdate,

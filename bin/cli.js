@@ -3,7 +3,8 @@
 const { program } = require('commander');
 const { startInteractiveMenu } = require('../src/menu');
 const { showSystemInfo } = require('../src/system');
-const { spawnBackgroundCheck, loadUpdateInfo, showUpdateNotice, getCurrentVersion } = require('../src/updater');
+const { spawnBackgroundCheck, checkForUpdates, syncUpdate, getCurrentVersion } = require('../src/updater');
+const { theme } = require('../src/ui');
 
 // 获取动态版本
 const version = getCurrentVersion();
@@ -17,7 +18,7 @@ program
   .command('setup')
   .description('启动交互式配置菜单')
   .action(async () => {
-    checkAndNotifyUpdate();
+    await ensureLatestVersion();
     spawnBackgroundCheck();
     await showSystemInfo();
     await startInteractiveMenu();
@@ -27,6 +28,7 @@ program
   .command('info')
   .description('显示系统环境信息')
   .action(async () => {
+    await ensureLatestVersion();
     await showSystemInfo();
   });
 
@@ -34,9 +36,6 @@ program
   .command('update')
   .description('检查并更新到最新版本')
   .action(async () => {
-    const { syncUpdate } = require('../src/updater');
-    const { theme } = require('../src/ui');
-
     console.log(theme.primary('\n正在更新 UUTools...\n'));
     const success = syncUpdate();
 
@@ -48,26 +47,31 @@ program
   });
 
 /**
- * 检查更新并显示提示 (基于缓存)
+ * 启动前自动检查并执行更新
  */
-function checkAndNotifyUpdate() {
+async function ensureLatestVersion() {
   try {
-    const updateInfo = loadUpdateInfo();
+    const updateInfo = await checkForUpdates();
 
     if (updateInfo && updateInfo.hasUpdate) {
-      // 如果上次检查时间超过 24 小时，可能过期了，但还是提示一下也无妨
-      const { theme } = require('../src/ui');
-      showUpdateNotice(updateInfo.currentVersion, updateInfo.latestVersion, theme);
+      console.log(theme.primary(`\n检测到新版本 ${updateInfo.latestVersion}，正在自动更新...`));
+      const success = syncUpdate();
+
+      if (success) {
+        console.log(theme.success(`\n✅ UUTools 已更新至 ${updateInfo.latestVersion}，建议重新运行以使用最新版本。\n`));
+      } else {
+        console.log(theme.error('\n❌ 自动更新失败，请手动运行: npm install -g @uupkg/uutools\n'));
+      }
     }
   } catch (error) {
-    // 静默失败
+    console.log(theme.warning('\n⚠️ 自动更新检查失败，已跳过\n'));
   }
 }
 
 // 默认启动交互式菜单
 if (process.argv.length <= 2) {
   (async () => {
-    checkAndNotifyUpdate();
+    await ensureLatestVersion();
     spawnBackgroundCheck();
     await showSystemInfo();
     await startInteractiveMenu();
