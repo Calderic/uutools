@@ -1,8 +1,9 @@
-const { select, text, password, confirm, isCancel, cancel, spinner } = require('@clack/prompts');
+const { select, text, confirm, isCancel, cancel, spinner } = require('@clack/prompts');
 const fs = require('fs');
 const path = require('path');
 const { execSync } = require('child_process');
 const { theme, showBox } = require('../ui');
+const { promptApiKey } = require('../utils/apiKeyPrompt');
 
 /**
  * API 提供商列表
@@ -110,15 +111,8 @@ async function configureApiByFile(configPath) {
       ? '请输入 Anthropic API Key:'
       : '请输入 API Key:';
 
-  const apiKey = await password({
-    message: apiKeyMessage,
-    mask: '*',
-    validate: (input) => {
-      if (!input || input.trim() === '') return '请输入有效的 API Key';
-    }
-  });
-
-  if (isCancel(apiKey)) return;
+  const apiKey = await promptApiKey({ provider, message: apiKeyMessage });
+  if (!apiKey) return;
 
   const s = spinner();
   s.start('正在配置 settings.json...');
@@ -215,15 +209,8 @@ async function configureApiByEnv(osInfo, configPath) {
       ? '请输入 Anthropic API Key:'
       : '请输入 API Key:';
 
-  const apiKey = await password({
-    message: apiKeyMessage,
-    mask: '*',
-    validate: (input) => {
-      if (!input || input.trim() === '') return '请输入有效的 API Key';
-    }
-  });
-
-  if (isCancel(apiKey)) return;
+  const apiKey = await promptApiKey({ provider, message: apiKeyMessage });
+  if (!apiKey) return;
 
   const s = spinner();
   s.start('正在配置环境变量...');

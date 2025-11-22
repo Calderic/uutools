@@ -1,4 +1,4 @@
-const { intro, outro, select, confirm, isCancel, password, spinner } = require('@clack/prompts');
+const { intro, outro, select, confirm, isCancel, spinner } = require('@clack/prompts');
 const chalk = require('chalk');
 const fs = require('fs');
 const path = require('path');
@@ -8,6 +8,7 @@ const { configureClaude } = require('./configurators/claude');
 const { configureCodex } = require('./configurators/codex');
 const { configureGemini } = require('./configurators/gemini');
 const { theme, showBox } = require('./ui');
+const { promptApiKey } = require('./utils/apiKeyPrompt');
 
 /**
  * 启动交互式菜单
@@ -110,15 +111,8 @@ async function configureAll(osInfo, tools, configPaths) {
  */
 async function configureAllWithUUcode(osInfo, configPaths) {
   // 输入 API Key
-  const apiKey = await password({
-    message: '请输入 UUcode API Key:',
-    mask: '*',
-    validate: (input) => {
-      if (!input || input.trim() === '') return '请输入有效的 API Key';
-    }
-  });
-
-  if (isCancel(apiKey)) return;
+  const apiKey = await promptApiKey({ provider: 'uucode', message: '请输入 UUcode API Key:' });
+  if (!apiKey) return;
 
   const s = spinner();
   s.start('正在配置全部工具...');

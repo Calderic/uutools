@@ -1,8 +1,9 @@
-const { select, text, password, confirm, isCancel, spinner } = require('@clack/prompts');
+const { select, text, confirm, isCancel, spinner } = require('@clack/prompts');
 const fs = require('fs');
 const path = require('path');
 const { spawnSync } = require('child_process');
 const { theme, showBox } = require('../ui');
+const { promptApiKey } = require('../utils/apiKeyPrompt');
 
 /**
  * API 提供商列表
@@ -135,15 +136,8 @@ async function configureApi(osInfo, configPath) {
       ? '请输入 OpenAI API Key:'
       : '请输入 API Key:';
 
-  const apiKey = await password({
-    message: apiKeyMessage,
-    mask: '*',
-    validate: (input) => {
-      if (!input || input.trim() === '') return '请输入有效的 API Key';
-    }
-  });
-
-  if (isCancel(apiKey)) return;
+  const apiKey = await promptApiKey({ message: apiKeyMessage, provider });
+  if (!apiKey) return;
 
   const s = spinner();
   s.start('正在配置 Codex...');
